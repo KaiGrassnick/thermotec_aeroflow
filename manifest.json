@@ -2,7 +2,7 @@
   "domain": "thermotec_aeroflow",
   "name": "Thermotec AeroFlow",
   "config_flow": true,
-  "documentation": "https://www.home-assistant.io/integrations/thermotec_aeroflow",
+  "documentation": "https://github.com/KaiGrassnick/thermotec_aeroflow",
   "requirements": ["thermotecaeroflowflexismart==0.0.8"],
   "codeowners": [
     "@kaigrassnick"
