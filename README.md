@@ -15,7 +15,10 @@ This Integration is used for HomeAssistant to provide smart function and is rela
 
 1. Download the latest release
 2. Extract and Upload the folder `thermotec_aeroflow` into your `<config_folder>/custom_components`
-3. Go to integrations and enable the new __Thermotec Aeroflow__ integration
+3. Restart HASSIO
+4. Go to integrations
+5. Force reload cache ( STRG + F5 or delete Cache)
+6. Add new Integration, search for __Thermotec Aeroflow__
 
 
 ## Note
