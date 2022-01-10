@@ -1,0 +1,38 @@
+# Describes the format for available thermotec aeroflow services
+
+update_date_time:
+  name: Update Date and Time
+  description: Update the Date and Time in all Modules.
+
+set_window_open_detection:
+  name: Update Window Open Detection
+  description: Enable or Disable the Window Open Detection
+  target:
+    entity:
+      integration: thermotec_aeroflow
+      domain: climate
+  fields:
+    window_open_detection:
+      name: Window Open Detection
+      description: Enable or Disable the Window Open Detection.
+      default: false
+      selector:
+        boolean:
+
+set_anti_freeze_temperature:
+  name: Set Anti Freeze Temperature
+  description: Set Anti Freeze target temperature
+  target:
+    entity:
+      integration: thermotec_aeroflow
+      domain: climate
+  fields:
+    anti_freeze_temperature:
+      name: Anti Freeze Temperature
+      description: Target temperature
+      default: 15
+      selector:
+        number:
+          min: 0
+          max: 17
+          unit_of_measurement: '°C'
