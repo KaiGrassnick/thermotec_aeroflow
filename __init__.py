@@ -1,7 +1,10 @@
 """The Thermotec AeroFlow integration."""
 import logging
 
+import async_timeout
+from datetime import timedelta
 from thermotecaeroflowflexismart.client import Client
+from thermotecaeroflowflexismart.exception import RequestTimeout, InvalidResponse
 
 from homeassistant import core
 from homeassistant.config_entries import ConfigEntry
@@ -9,13 +12,18 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
 from .const import DOMAIN
-
+from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
+    DataUpdateCoordinator,
+    UpdateFailed,
+)
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[str] = ["climate"]
 
 SERVICE_UPDATE_DATE_TIME = "update_date_time"
-SERVICE_UPDATE_WINDOW_OPEN_DETECTION = "update_window_open_detection"
+
+REGULAR_INTERVAL = timedelta(seconds=30)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -24,8 +32,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     client = Client(entry.data[CONF_HOST], entry.data[CONF_PORT])
 
+    async def async_update_data():
+        try:
+            async with async_timeout.timeout(30):
+                return await client.get_all_data()
+        except RequestTimeout as err:
+            raise UpdateFailed(f"Error communicating with API: {err}")
+        except InvalidResponse as err:
+            raise UpdateFailed(f"Error communicating with API: {err}")
+
+    coordinator = DataUpdateCoordinator(
+        hass,
+        _LOGGER,
+        name=DOMAIN,
+        update_method=async_update_data,
+        update_interval=REGULAR_INTERVAL,
+    )
+    await coordinator.async_config_entry_first_refresh()
+
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = client
+    hass.data[DOMAIN][entry.entry_id] = {"client": client, "coordinator": coordinator}
 
     hass.config_entries.async_setup_platforms(entry, PLATFORMS)
 
@@ -57,15 +83,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
-class ThermotecAeroflowEntity(Entity):
+class ThermotecAeroflowEntity(CoordinatorEntity, Entity):
     """Representation of a Thermotec Aeroflow heater."""
 
     _attr_available: bool = False
 
     def __init__(
-        self, client: Client, entity_type: str, zone: int, module: int, identifier: str
-    ):
+            self, coordinator: DataUpdateCoordinator, client: Client, entity_type: str, zone: int, module: int,
+            identifier: str):
         """Initialize the entity."""
+        super().__init__(coordinator)
         _LOGGER.debug("New Entity for Zone: %s, Module: %s", zone, module)
 
         self._client: Client = client
@@ -74,38 +101,12 @@ class ThermotecAeroflowEntity(Entity):
         self._identifier: str = identifier
         self._entity_type: str = entity_type
 
-    async def async_update(self, **kwargs):
-        """Pull the latest data from Client."""
-        try:
-            await self._update_status()
-            self._attr_available = True
-            _LOGGER.debug(
-                "Status updated for Zone: %s, Module: %s", self._zone, self._module
-            )
-        except Exception as err:
-            template = "An exception of type {0} occurred. Arguments:\n{1!r}"
-            message = template.format(type(err).__name__, err.args)
-            _LOGGER.warning(
-                "Connection failed for Zone: %s, Module: %s. Message: %s",
-                self._zone,
-                self._module,
-                message,
-            )
-            self._attr_available = False
-
-    async def _update_status(self):
-        _LOGGER.warning(
-            "Update Status for Zone: %s, Module: %s was not implemented",
-            self._zone,
-            self._module,
-        )
-
     @property
     def name(self):
         """Return the name of the Heater."""
-        return f"Thermotec AeroFlow® - {self._entity_type}"
+        return f"Thermotec AeroFlow - {self._entity_type} - {self._identifier}"
 
     @property
     def unique_id(self):
         """Return the heater's unique id."""
-        return f"thermotec-aeroflow_{self._identifier}_{self._entity_type}"
+        return f"thermotec-aeroflow_{self._entity_type}_{self._identifier}"
