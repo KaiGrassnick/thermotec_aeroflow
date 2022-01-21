@@ -3,7 +3,7 @@
   "name": "Thermotec AeroFlow",
   "config_flow": true,
   "documentation": "https://github.com/KaiGrassnick/thermotec_aeroflow",
-  "requirements": ["thermotecaeroflowflexismart==0.0.10"],
+  "requirements": ["thermotecaeroflowflexismart==0.0.11"],
   "codeowners": [
     "@kaigrassnick"
   ],
