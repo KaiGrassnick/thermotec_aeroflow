@@ -60,7 +60,8 @@ async def async_setup_entry(
     coordinator = entry["coordinator"]  # type: DataUpdateCoordinator
 
     async_add_entities(
-        ThermotecAeroflowClimateEntity(coordinator, client, idx, entity) for idx, entity in enumerate(coordinator.data)
+        (ThermotecAeroflowClimateEntity(coordinator, client, identifier, entity)
+         for identifier, entity in coordinator.data.items())
     )
 
     platform = entity_platform.async_get_current_platform()
@@ -97,16 +98,25 @@ class ThermotecAeroflowClimateEntity(ThermotecAeroflowEntity, ClimateEntity, ABC
     _attr_hvac_mode = HVAC_MODE_HEAT
     _attr_hvac_modes = [HVAC_MODE_HEAT]
 
-    def __init__(self, coordinator: DataUpdateCoordinator, client: Client, idx: int, entity: HomeAssistantModuleData):
+    def __init__(self, coordinator: DataUpdateCoordinator, client: Client, identifier: str,
+                 entity: HomeAssistantModuleData):
         """Initialize the climate device."""
         entity_type = "Heater"
-        self.idx = idx
         super().__init__(coordinator=coordinator, client=client, entity_type=entity_type, zone=entity.get_zone_id(),
-                         module=entity.get_module_id(), identifier=entity.get_module_data().get_device_identifier())
+                         module=entity.get_module_id(), identifier=identifier)
         self._update_attributes()
 
     def _update_attributes(self) -> None:
-        current_data = self.coordinator.data[self.idx]  # type: HomeAssistantModuleData
+        _LOGGER.debug("Updating %s", self._identifier)
+
+        current_data = self.coordinator.data.get(self._identifier)  # type: HomeAssistantModuleData
+        if current_data is None:
+            _LOGGER.debug("Could not find data for heater with identifier %s. Disabling", self._identifier)
+            self._attr_available = False
+            return
+
+        self._attr_available = True
+
         module_data = current_data.get_module_data()
 
         self._attr_target_temperature = module_data.get_target_temperature()
@@ -129,6 +139,11 @@ class ThermotecAeroflowClimateEntity(ThermotecAeroflowEntity, ClimateEntity, ABC
         """Handle updated data from the coordinator."""
         self._update_attributes()
         super()._handle_coordinator_update()
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success and self._attr_available
 
     @property
     def preset_mode(self):
@@ -199,6 +214,8 @@ class ThermotecAeroflowClimateEntity(ThermotecAeroflowEntity, ClimateEntity, ABC
 
         Need to be one of CURRENT_HVAC_*.
         """
+        if self.current_temperature is None or self.target_temperature is None:
+            return None
         if self.current_temperature < self.target_temperature:
             return CURRENT_HVAC_HEAT
         return CURRENT_HVAC_IDLE

@@ -34,7 +34,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_update_data():
         try:
-            async with async_timeout.timeout(30):
+            async with async_timeout.timeout(20):
                 return await client.get_all_data()
         except RequestTimeout as err:
             raise UpdateFailed(f"Error communicating with API: {err}")
