@@ -25,6 +25,7 @@ This Integration is used for HomeAssistant to provide smart function and is rela
 Heaters / Zone are detected automatically (if e.g. created via the app)
 
 Example of how a heater might look like
+
 ![image](https://user-images.githubusercontent.com/7880861/148777401-1b04b332-cbc9-488c-8114-af22e029025c.png)
 
 
