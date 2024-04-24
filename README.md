@@ -14,12 +14,19 @@ This Integration is used for HomeAssistant to provide smart function and is rela
 ## How to install
 
 1. Download the latest release
-2. Extract and Upload the folder `thermotec_aeroflow` into your `<config_folder>/custom_components`
-3. Restart HASSIO
-4. Go to integrations
-5. Force reload cache ( STRG + F5 or delete Cache)
-6. Add new Integration, search for __Thermotec Aeroflow__
+2. Extract and Upload the folder as `thermotec_aeroflow` into your `<config_folder>/custom_components`
+   - Make sure the Folder is actually called: `thermotec_aeroflow`. The Name needs to match the Domain.
+   - E.g.: If the folder is called: `thermotec_aeroflow-0.0.5` you will not be able to activate the Integration with an Error like this: `{"message":"Invalid handler specified"}`
+4. Restart HASSIO
+5. Go to integrations
+6. Force reload cache ( STRG + F5 or delete Cache )
+7. Add new Integration, search for __Thermotec Aeroflow__
 
+
+## FAQ
+- Error: `{"message":"Invalid handler specified"}`
+  - Verify the folder you uploaded to `custom_components` is called `thermotec_aeroflow`.
+  - It will not work if the folder is called differently. Example: `thermotec_aeroflow-0.0.5` will throw this error
 
 ## How to use
 Heaters / Zone are detected automatically (if e.g. created via the app)
@@ -27,7 +34,6 @@ Heaters / Zone are detected automatically (if e.g. created via the app)
 Example of how a heater might look like
 
 ![image](https://user-images.githubusercontent.com/7880861/148777401-1b04b332-cbc9-488c-8114-af22e029025c.png)
-
 
 
 ## Note
