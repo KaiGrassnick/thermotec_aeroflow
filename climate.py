@@ -10,18 +10,20 @@ from thermotecaeroflowflexismart.client import Client
 from thermotecaeroflowflexismart.data_object import HomeAssistantModuleData
 
 from homeassistant.components.climate import ClimateEntity
+
 from homeassistant.components.climate.const import (
-    CURRENT_HVAC_HEAT,
-    CURRENT_HVAC_IDLE,
-    HVAC_MODE_HEAT,
+    HVACAction,
+    CURRENT_HVAC_ACTIONS,
+    HVACMode,
+    HVAC_MODES,
     PRESET_HOME,
     PRESET_AWAY,
     PRESET_BOOST,
-    SUPPORT_TARGET_TEMPERATURE,
-    SUPPORT_PRESET_MODE
+    ClimateEntityFeature
 )
+
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_TEMPERATURE, TEMP_CELSIUS
+from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import (
     entity_platform,
@@ -92,11 +94,11 @@ class ThermotecAeroflowClimateEntity(ThermotecAeroflowEntity, ClimateEntity, ABC
 
     _attr_min_temp = 1
     _attr_max_temp = 35
-    _attr_supported_features = SUPPORT_TARGET_TEMPERATURE | SUPPORT_PRESET_MODE
-    _attr_temperature_unit = TEMP_CELSIUS
+    _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.PRESET_MODE
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_preset_modes = [PRESET_HOME, PRESET_AWAY, PRESET_BOOST]
-    _attr_hvac_mode = HVAC_MODE_HEAT
-    _attr_hvac_modes = [HVAC_MODE_HEAT]
+    _attr_hvac_mode = HVACMode.HEAT
+    _attr_hvac_modes = [HVAC_MODES]
 
     def __init__(self, coordinator: DataUpdateCoordinator, client: Client, identifier: str,
                  entity: HomeAssistantModuleData):
@@ -217,8 +219,8 @@ class ThermotecAeroflowClimateEntity(ThermotecAeroflowEntity, ClimateEntity, ABC
         if self.current_temperature is None or self.target_temperature is None:
             return None
         if self.current_temperature < self.target_temperature:
-            return CURRENT_HVAC_HEAT
-        return CURRENT_HVAC_IDLE
+            return HVACAction.HEATING
+        return HVACAction.IDLE
 
     async def set_window_open_detection(self, window_open_detection: bool) -> None:
         """Enable or Disable Window Open Detection."""
