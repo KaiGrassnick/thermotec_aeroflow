@@ -98,7 +98,7 @@ class ThermotecAeroflowClimateEntity(ThermotecAeroflowEntity, ClimateEntity, ABC
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_preset_modes = [PRESET_HOME, PRESET_AWAY, PRESET_BOOST]
     _attr_hvac_mode = HVACMode.HEAT
-    _attr_hvac_modes = [HVAC_MODES]
+    _attr_hvac_modes = [HVACMode.HEAT]
 
     def __init__(self, coordinator: DataUpdateCoordinator, client: Client, identifier: str,
                  entity: HomeAssistantModuleData):

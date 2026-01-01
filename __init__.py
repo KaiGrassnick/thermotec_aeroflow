@@ -37,8 +37,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             async with async_timeout.timeout(20):
                 return await client.get_all_data()
         except RequestTimeout as err:
+            _LOGGER.error("Timeout communicating with Thermotec API: %s", err)
             raise UpdateFailed(f"Error communicating with API: {err}")
         except InvalidResponse as err:
+            _LOGGER.error("Invalid response from Thermotec API: %s", err)
+            raise UpdateFailed(f"Error communicating with API: {err}")
+        except Exception as err:
+            _LOGGER.error("Unexpected error communicating with Thermotec API: %s", err)
             raise UpdateFailed(f"Error communicating with API: {err}")
 
     coordinator = DataUpdateCoordinator(
