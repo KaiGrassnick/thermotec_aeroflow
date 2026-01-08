@@ -1,81 +1,82 @@
 """The Thermotec AeroFlow integration."""
+from __future__ import annotations
+
 import logging
 
-import async_timeout
 from thermotecaeroflowflexismart.client import Client
-from thermotecaeroflowflexismart.exception import RequestTimeout, InvalidResponse
 
-from homeassistant import core
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity import DeviceInfo, Entity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, UPDATE_INTERVAL_DEVICES
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-    DataUpdateCoordinator,
-    UpdateFailed,
+from .const import DOMAIN, MANUFACTURER
+from .coordinator import (
+    ThermotecZonesCoordinator,
+    ThermotecGatewayCoordinator,
+    ThermotecDeviceCoordinator,
 )
+
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[str] = ["climate"]
 
 SERVICE_UPDATE_DATE_TIME = "update_date_time"
 
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Thermotec AeroFlow from a config entry."""
     _LOGGER.debug("Setting up Thermotec AeroFlow component")
 
-    client = Client(entry.data[CONF_HOST], entry.data[CONF_PORT])
+    host = entry.data[CONF_HOST]
+    port = entry.data[CONF_PORT]
+    extended_data = entry.data.get("extended_data", True)
 
-    async def async_update_data():
-        extended_data = True
-        if "extended_data" in entry.data:
-            extended_data = entry.data["extended_data"]
+    client = Client(host, port)
 
-        try:
-            async with async_timeout.timeout(20):
-                return await client.get_all_data(extended=extended_data)
-        except RequestTimeout as err:
-            _LOGGER.error("Timeout communicating with Thermotec API: %s", err)
-            raise UpdateFailed(f"Error communicating with API: {err}")
-        except InvalidResponse as err:
-            _LOGGER.error("Invalid response from Thermotec API: %s", err)
-            raise UpdateFailed(f"Error communicating with API: {err}")
-        except Exception as err:
-            _LOGGER.error("Unexpected error communicating with Thermotec API: %s", err)
-            raise UpdateFailed(f"Error communicating with API: {err}")
+    # Initialize coordinators
+    zones_coordinator = ThermotecZonesCoordinator(hass, client)
+    gateway_coordinator = ThermotecGatewayCoordinator(hass, client)
 
-    coordinator = DataUpdateCoordinator(
-        hass,
-        _LOGGER,
-        name=DOMAIN,
-        update_method=async_update_data,
-        update_interval=UPDATE_INTERVAL_DEVICES,
-    )
-    await coordinator.async_config_entry_first_refresh()
+    # Perform initial refresh for both coordinators
+    try:
+        await zones_coordinator.async_config_entry_first_refresh()
+    except Exception as err:  # pylint: disable=broad-except
+        _LOGGER.warning("Failed to fetch zones on startup: %s", err)
 
+    try:
+        await gateway_coordinator.async_config_entry_first_refresh()
+    except Exception as err:  # pylint: disable=broad-except
+        _LOGGER.warning("Failed to fetch gateway data on startup: %s", err)
+
+    # Store data in hass
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = {"client": client, "coordinator": coordinator}
+    entry_data = {
+        "client": client,
+        "zones_coordinator": zones_coordinator,
+        "gateway_coordinator": gateway_coordinator,
+        "device_coordinators": {},
+        "extended_data": extended_data,
+    }
+    hass.data[DOMAIN][entry.entry_id] = entry_data
 
+    # Forward setup to platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Register services
     _register_services(hass, client)
+
+    # Setup update listener for reconfiguration
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     return True
 
 
-@core.callback
-def _register_services(hass, client):
-    """Register Thermotec Aeroflow services."""
-
-    async def update_date_time(call):
-        _LOGGER.debug("Update the date and time")
-        await client.update_date_time()
-
-    if not hass.services.has_service(DOMAIN, SERVICE_UPDATE_DATE_TIME):
-        hass.services.async_register(DOMAIN, SERVICE_UPDATE_DATE_TIME, update_date_time)
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Handle options update."""
+    _LOGGER.debug("Thermotec AeroFlow config updated, reloading entry")
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -89,30 +90,99 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
+def _register_services(hass: HomeAssistant, client: Client) -> None:
+    """Register Thermotec Aeroflow services."""
+
+    async def update_date_time(call):
+        _LOGGER.debug("Update the date and time")
+        await client.update_date_time()
+
+    if not hass.services.has_service(DOMAIN, SERVICE_UPDATE_DATE_TIME):
+        hass.services.async_register(
+            DOMAIN, SERVICE_UPDATE_DATE_TIME, update_date_time
+        )
+
+
 class ThermotecAeroflowEntity(CoordinatorEntity, Entity):
-    """Representation of a Thermotec Aeroflow heater."""
+    """Base representation of a Thermotec Aeroflow entity."""
 
     _attr_available: bool = False
 
     def __init__(
-            self, coordinator: DataUpdateCoordinator, client: Client, entity_type: str, zone: int, module: int,
-            identifier: str):
+        self,
+        coordinator,
+        client: Client,
+        entity_type: str,
+        zone: int | None = None,
+        module: int | None = None,
+        identifier: str | None = None,
+    ):
         """Initialize the entity."""
         super().__init__(coordinator)
-        _LOGGER.debug("New Entity for Zone: %s, Module: %s", zone, module)
+        _LOGGER.debug(
+            "New Entity: type=%s, zone=%s, module=%s, identifier=%s",
+            entity_type,
+            zone,
+            module,
+            identifier,
+        )
 
         self._client: Client = client
-        self._zone: int = zone
-        self._module: int = module
-        self._identifier: str = identifier
+        self._zone: int | None = zone
+        self._module: int | None = module
+        self._identifier: str | None = identifier
         self._entity_type: str = entity_type
 
     @property
-    def name(self):
-        """Return the name of the Heater."""
-        return f"Thermotec AeroFlow - {self._entity_type} - {self._identifier}"
+    def name(self) -> str:
+        """Return the name of the entity."""
+        if self._identifier:
+            return f"Thermotec AeroFlow - {self._entity_type} - {self._identifier}"
+        return f"Thermotec AeroFlow - {self._entity_type}"
 
     @property
-    def unique_id(self):
-        """Return the heater's unique id."""
-        return f"thermotec-aeroflow_{self._entity_type}_{self._identifier}"
+    def unique_id(self) -> str:
+        """Return the entity's unique id."""
+        if self._identifier:
+            return f"thermotec-aeroflow_{self._entity_type}_{self._identifier}"
+        return f"thermotec-aeroflow_{self._entity_type}_gateway"
+
+
+class ThermotecGatewayEntity(CoordinatorEntity, Entity):
+    """Representation of the Thermotec Aeroflow gateway device."""
+
+    _attr_available: bool = False
+
+    def __init__(self, coordinator: ThermotecGatewayCoordinator, client: Client):
+        """Initialize the gateway entity."""
+        super().__init__(coordinator)
+        self._client = client
+        self._attr_available = False
+
+    @property
+    def name(self) -> str:
+        """Return the name of the gateway."""
+        return "Thermotec AeroFlow Gateway"
+
+    @property
+    def unique_id(self) -> str:
+        """Return the gateway's unique id."""
+        return "thermotec-aeroflow_gateway"
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        data = self.coordinator.data or {}
+        return DeviceInfo(
+            identifiers={(DOMAIN, "thermotec-aeroflow_gateway")},
+            name="Thermotec AeroFlow Gateway",
+            manufacturer=MANUFACTURER,
+            model=data.get("model", "FlexiSmart Gateway"),
+            sw_version=data.get("fw_version", "Unknown"),
+            hw_version=data.get("mac_address", "Unknown"),
+        )
