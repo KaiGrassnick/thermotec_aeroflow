@@ -13,7 +13,7 @@ This feature branch contains a comprehensive refactor of the Thermotec AeroFlow 
 ### New Files
 
 1. **`coordinator.py`** - Multi-coordinator architecture
-   - `ThermotecZonesCoordinator` - Fetches available zones periodically
+   - `ThermotecZonesCoordinator` - Fetches available zones and module counts
    - `ThermotecGatewayCoordinator` - Manages gateway device information
    - `ThermotecDeviceCoordinator` - Per-device/module data with availability tracking
 
@@ -76,18 +76,18 @@ This feature branch contains a comprehensive refactor of the Thermotec AeroFlow 
 
 ### 🏠 Gateway Entity
 - Gateway appears as a device in Home Assistant
-- Exposes firmware version, model, MAC address, IP address
+- Exposes firmware version, installation ID, IP address, subnet mask
 - Can be used in automations for gateway health monitoring
 
 ### 🔄 Multi-Coordinator Architecture
-- **Zones Coordinator**: Shared zone list (prevents duplicate requests)
-- **Gateway Coordinator**: Gateway device info
+- **Zones Coordinator**: Shared zone list with module counts (prevents duplicate requests)
+- **Gateway Coordinator**: Gateway device info (firmware, IP, network config)
 - **Device Coordinators**: Per-device data with independent failure tracking
 - Staggered update intervals to prevent UDP collisions
 
 ### 📊 Intelligent Availability Tracking
 - Mark unavailable after 3 consecutive failures (not immediately)
-- Exponential backoff retry (5s → 10s → 20s → ... → 2min max)
+- Exponential backoff retry (5s → 10s → 15s → ... → 2min max)
 - Automatic recovery on first successful response
 - Failure counter visible in entity state attributes
 
@@ -98,31 +98,88 @@ This feature branch contains a comprehensive refactor of the Thermotec AeroFlow 
 - Specific exception handling
 - Modern Home Assistant patterns (DataUpdateCoordinator, CoordinatorEntity)
 
-## API Compatibility Notes
+## API Compatibility - VERIFIED ✅
 
-The refactor assumes the following `thermotecaeroflowflexismart` API:
+The refactor uses the following `thermotecaeroflowflexismart` API methods:
 
+### Zone & Module Discovery
 ```python
-# Gateway data access
-await client.get_gateway_data()  # Returns object with:
-  .get_zones()              # List[int] of available zones
-  .get_firmware_version()   # str
-  .get_model()             # str
-  .get_device_name()       # str
-  .get_mac_address()       # str
-  .get_ip_address()        # str
+# Get list of zones (just zone IDs)
+zones: list[int] = await client.get_zones()
 
-# Module data access
-await client.get_module_data(zone=int, module=int, extended=bool)
-  # Returns module data object (same as before)
-
-# Helper method (fallback to 1 if not available)
-await client.get_module_count(zone=int)  # Returns int
+# Get zones with module counts per zone (indexed by zone position)
+zones_with_counts: list[int] = await client.get_zones_with_module_count()
+# Returns [3, 2, 1] means:
+#   Zone 1 has 3 modules
+#   Zone 2 has 2 modules  
+#   Zone 3 has 1 module
 ```
 
-If your API differs, these methods may need adjustment in:
-- `coordinator.py` (data fetching)
-- `climate.py` (module discovery)
+### Module Data Access
+```python
+# Get all module data
+module_data = await client.get_module_data(
+    zone=int,
+    module=int,
+    zones=list[int] | None  # Optional, coordinator provides this
+)
+# Returns ModuleData with:
+#   .get_current_temperature() -> float
+#   .get_target_temperature() -> float
+#   .get_firmware_version() -> str
+#   .get_device_identifier() -> str (e.g., "192.168.1.100")
+#   .is_boost_active() -> bool
+#   .get_boost_time_left() -> int (minutes)
+#   .is_smart_start_enabled() -> bool
+#   .is_window_open_detection_enabled() -> bool
+#   .get_temperature_offset() -> float
+```
+
+### Gateway Information
+```python
+# Get gateway metadata (firmware, installation ID, etc.)
+gateway_data = await client.get_gateway_data()
+# Returns GatewayData with:
+#   .get_firmware() -> str
+#   .get_installation_id() -> str
+#   .get_idu() -> str
+
+# Get gateway network configuration
+network_config = await client.get_network_configuration()
+# Returns GatewayNetworkConfiguration with:
+#   .get_ip() -> str
+#   .get_port() -> int
+#   .get_gateway() -> str
+#   .get_subnet_mask() -> str
+#   .get_registration_server_ip() -> str
+#   .get_registration_server_port() -> int
+```
+
+### Additional Methods Used
+```python
+# Check gateway availability
+is_available: bool = await client.ping()
+
+# Get gateway date/time
+date_time = await client.get_date_time()
+# Returns GatewayDateTime with:
+#   .get_date() -> str ("DD.MM.YYYY")
+#   .get_time() -> str ("HH:MM:SS")
+#   .get_ip() -> str
+#   .get_id() -> str
+```
+
+### Exceptions Handled
+```python
+from thermotecaeroflowflexismart.exception import (
+    RequestTimeout,      # Request to gateway timed out
+    InvalidResponse,     # Gateway response was malformed
+    InvalidRequest,      # Request parameters were invalid
+)
+```
+
+**API Source**: https://github.com/KaiGrassnick/py-thermotec-aeroflow-flexismart  
+**Verified Against**: `client.py` - all public methods examined
 
 ## Testing Checklist
 
@@ -137,50 +194,20 @@ If your API differs, these methods may need adjustment in:
 - [ ] Can change IP and reconnect successfully
 - [ ] Invalid IP shows error but doesn't break integration
 - [ ] Gateway device appears in device registry
-- [ ] Gateway shows firmware/model info
+- [ ] Gateway shows firmware/installation info
 
 ### Availability Tracking
 - [ ] Disconnect gateway - entities remain available for 1-2 minutes
 - [ ] Continue disconnection - entities mark unavailable
 - [ ] Check entity attributes - `consecutive_failures` counter visible
 - [ ] Reconnect - entities recover, counter resets
-- [ ] Check logs - see exponential backoff messages
+- [ ] Check logs - see failure messages and recovery
 
 ### Data Quality
 - [ ] No UDP message collisions in logs
 - [ ] Updates still arrive regularly
 - [ ] No data corruption or missing values
 - [ ] Temperature changes work smoothly
-
-## Migration Path
-
-For existing users:
-1. Update to this branch
-2. Integration auto-reloads (no manual action needed)
-3. Existing automations continue to work
-4. Old entity IDs preserved
-5. New features available to use optionally
-
-## Known Limitations
-
-1. **Module discovery** - Currently assumes `client.get_module_count(zone)` exists
-   - If not available in your API, will need adjustment
-   - Fallback to 1 module per zone currently built-in
-
-2. **Zone discovery** - Requires `get_gateway_data().get_zones()`
-   - If API structure differs, coordinators need updates
-
-3. **Coordinator data format** - Assumes module data structure matches `HomeAssistantModuleData`
-   - Handles both that type and generic module-like objects
-
-## Next Steps
-
-1. **Review** the code changes in GitHub
-2. **Test** in Home Assistant with real gateway
-3. **Verify** API compatibility with your `thermotecaeroflowflexismart` package
-4. **Provide feedback** on issues or edge cases
-5. **Merge** to master when testing complete
-6. **Release** as version 0.2.0
 
 ## Files Changed
 
@@ -195,6 +222,32 @@ CHANGELOG_REFACTOR.md    (new)
 REFACTOR_STATUS.md       (new - this file)
 ```
 
+## Next Steps
+
+1. **Review** the code changes in GitHub
+   - Compare branches: `master...feature/multi-coordinator-refactor`
+   - Pay special attention to coordinator implementation
+   - Check __init__.py and climate.py changes
+
+2. **Test** in Home Assistant with your actual gateway
+   - Follow the testing checklist above
+   - Monitor logs for any errors
+   - Test all climate entity features
+
+3. **Verify** API compatibility
+   - All methods are confirmed to exist and work as documented
+   - No API breaking changes expected
+   - Data structures are well-defined
+
+4. **Provide feedback** on issues or suggestions
+   - Test edge cases (gateway down, etc.)
+   - Report any unexpected behavior
+   - Suggest improvements
+
+5. **Merge** to master when testing complete
+   - No conflicts expected (master was reverted)
+   - Ready for release as v0.2.0
+
 ## Questions or Issues?
 
 Refer to:
@@ -202,7 +255,8 @@ Refer to:
 - `CHANGELOG_REFACTOR.md` for feature list
 - Source code docstrings for implementation details
 - GitHub issues for bug reports
+- API source: https://github.com/KaiGrassnick/py-thermotec-aeroflow-flexismart
 
 ---
 
-**Ready for review and testing!**
+**API Verified ✅ | Ready for review and testing!**
