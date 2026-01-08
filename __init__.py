@@ -2,7 +2,6 @@
 import logging
 
 import async_timeout
-from datetime import timedelta
 from thermotecaeroflowflexismart.client import Client
 from thermotecaeroflowflexismart.exception import RequestTimeout, InvalidResponse
 
@@ -11,7 +10,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
-from .const import DOMAIN
+
+from .const import DOMAIN, UPDATE_INTERVAL_DEVICES
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
@@ -23,9 +23,6 @@ PLATFORMS: list[str] = ["climate"]
 
 SERVICE_UPDATE_DATE_TIME = "update_date_time"
 
-REGULAR_INTERVAL = timedelta(seconds=30)
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Thermotec AeroFlow from a config entry."""
     _LOGGER.debug("Setting up Thermotec AeroFlow component")
@@ -33,12 +30,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     client = Client(entry.data[CONF_HOST], entry.data[CONF_PORT])
 
     async def async_update_data():
+        extended_data = True
+        if "extended_data" in entry.data:
+            extended_data = entry.data["extended_data"]
+
         try:
             async with async_timeout.timeout(20):
-                return await client.get_all_data()
+                return await client.get_all_data(extended=extended_data)
         except RequestTimeout as err:
+            _LOGGER.error("Timeout communicating with Thermotec API: %s", err)
             raise UpdateFailed(f"Error communicating with API: {err}")
         except InvalidResponse as err:
+            _LOGGER.error("Invalid response from Thermotec API: %s", err)
+            raise UpdateFailed(f"Error communicating with API: {err}")
+        except Exception as err:
+            _LOGGER.error("Unexpected error communicating with Thermotec API: %s", err)
             raise UpdateFailed(f"Error communicating with API: {err}")
 
     coordinator = DataUpdateCoordinator(
@@ -46,7 +52,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER,
         name=DOMAIN,
         update_method=async_update_data,
-        update_interval=REGULAR_INTERVAL,
+        update_interval=UPDATE_INTERVAL_DEVICES,
     )
     await coordinator.async_config_entry_first_refresh()
 
@@ -74,7 +80,7 @@ def _register_services(hass, client):
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    _LOGGER.debug("UnloadThermotec AeroFlow component")
+    _LOGGER.debug("Unload Thermotec AeroFlow component")
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)

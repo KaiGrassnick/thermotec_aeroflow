@@ -13,9 +13,7 @@ from homeassistant.components.climate import ClimateEntity
 
 from homeassistant.components.climate.const import (
     HVACAction,
-    CURRENT_HVAC_ACTIONS,
     HVACMode,
-    HVAC_MODES,
     PRESET_HOME,
     PRESET_AWAY,
     PRESET_BOOST,
@@ -98,7 +96,7 @@ class ThermotecAeroflowClimateEntity(ThermotecAeroflowEntity, ClimateEntity, ABC
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_preset_modes = [PRESET_HOME, PRESET_AWAY, PRESET_BOOST]
     _attr_hvac_mode = HVACMode.HEAT
-    _attr_hvac_modes = [HVAC_MODES]
+    _attr_hvac_modes = [HVACMode.HEAT]
 
     def __init__(self, coordinator: DataUpdateCoordinator, client: Client, identifier: str,
                  entity: HomeAssistantModuleData):
@@ -133,8 +131,14 @@ class ThermotecAeroflowClimateEntity(ThermotecAeroflowEntity, ClimateEntity, ABC
         self._temperature_offset = module_data.get_temperature_offset()
         self._window_open_detection = module_data.is_window_open_detection_enabled()
         self._sw_version = module_data.get_firmware_version().replace("v", "")
-        self._anti_freeze_temperature = current_data.get_anti_freeze_temperature()
-        self._holiday_mode_active = current_data.get_holiday_data().is_holiday_mode_active()
+
+        anti_freeze_temperature = current_data.get_anti_freeze_temperature()
+        if anti_freeze_temperature is not None:
+            self._anti_freeze_temperature = anti_freeze_temperature
+
+        holiday_data = current_data.get_holiday_data()
+        if holiday_data is not None:
+            self._holiday_mode_active = holiday_data.is_holiday_mode_active()
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -250,7 +254,7 @@ class ThermotecAeroflowClimateEntity(ThermotecAeroflowEntity, ClimateEntity, ABC
 
     @property
     def extra_state_attributes(self):
-        """Return the state attributes of the sun."""
+        """Return the state attributes."""
         return {
             "window_open_detection": self._window_open_detection,
             "anti_freeze_temperature": self._anti_freeze_temperature,
